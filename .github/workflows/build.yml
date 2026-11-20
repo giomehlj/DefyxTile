@@ -1,0 +1,304 @@
+name: Build Defyx Tile
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Create project files
+        run: |
+          mkdir -p tile && cd tile
+          cat > settings.gradle.kts <<'EOF_0'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "DefyxTile"
+          include(":app")
+          EOF_0
+          cat > build.gradle.kts <<'EOF_1'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          EOF_1
+          cat > gradle.properties <<'EOF_2'
+          org.gradle.jvmargs=-Xmx2g
+          android.useAndroidX=false
+          EOF_2
+          mkdir -p app
+          cat > app/build.gradle.kts <<'EOF_3'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.example.defyxtile"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.example.defyxtile"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+          EOF_3
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'EOF_4'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <queries>
+                  <package android:name="de.unboundtech.defyxvpn" />
+              </queries>
+
+              <application
+                  android:label="Defyx Tile"
+                  android:allowBackup="false">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:theme="@android:style/Theme.NoDisplay">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".DefyxTileService"
+                      android:exported="true"
+                      android:icon="@drawable/ic_tile"
+                      android:label="Defyx"
+                      android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+                      <intent-filter>
+                          <action android:name="android.service.quicksettings.action.QS_TILE" />
+                      </intent-filter>
+                  </service>
+
+                  <service
+                      android:name=".TapService"
+                      android:exported="true"
+                      android:label="Defyx Tile"
+                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+                      <intent-filter>
+                          <action android:name="android.accessibilityservice.AccessibilityService" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.accessibilityservice"
+                          android:resource="@xml/accessibility_config" />
+                  </service>
+              </application>
+          </manifest>
+          EOF_4
+          mkdir -p app/src/main/res/xml
+          cat > app/src/main/res/xml/accessibility_config.xml <<'EOF_5'
+          <?xml version="1.0" encoding="utf-8"?>
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:accessibilityEventTypes="typeWindowStateChanged"
+              android:accessibilityFeedbackType="feedbackGeneric"
+              android:canPerformGestures="true"
+              android:canRetrieveWindowContent="true"
+              android:notificationTimeout="100"
+              android:description="@string/a11y_desc" />
+          EOF_5
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/strings.xml <<'EOF_6'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="a11y_desc">Taps the connect button after the Defyx tile opens the app.</string>
+          </resources>
+          EOF_6
+          mkdir -p app/src/main/res/drawable
+          cat > app/src/main/res/drawable/ic_tile.xml <<'EOF_7'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp"
+              android:height="24dp"
+              android:viewportWidth="24"
+              android:viewportHeight="24">
+              <path
+                  android:fillColor="#FFFFFFFF"
+                  android:pathData="M12,2L4,5v6c0,5.55 3.84,10.74 8,12 4.16,-1.26 8,-6.45 8,-12V5l-8,-3z" />
+          </vector>
+          EOF_7
+          mkdir -p app/src/main/kotlin/com/example/defyxtile
+          cat > app/src/main/kotlin/com/example/defyxtile/MainActivity.kt <<'EOF_8'
+          package com.example.defyxtile
+
+          import android.app.Activity
+          import android.content.Intent
+          import android.os.Bundle
+          import android.provider.Settings
+
+          class MainActivity : Activity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                  finish()
+              }
+          }
+          EOF_8
+          mkdir -p app/src/main/kotlin/com/example/defyxtile
+          cat > app/src/main/kotlin/com/example/defyxtile/TapService.kt <<'EOF_9'
+          package com.example.defyxtile
+
+          import android.accessibilityservice.AccessibilityService
+          import android.accessibilityservice.GestureDescription
+          import android.content.Intent
+          import android.graphics.Path
+          import android.os.Handler
+          import android.os.Looper
+          import android.view.accessibility.AccessibilityEvent
+
+          class TapService : AccessibilityService() {
+
+              companion object {
+                  const val DEFYX = "de.unboundtech.defyxvpn"
+                  const val TAP_X = 0.5f
+                  const val TAP_Y = 0.39f
+
+                  @Volatile
+                  var instance: TapService? = null
+              }
+
+              private val handler = Handler(Looper.getMainLooper())
+
+              override fun onServiceConnected() {
+                  instance = this
+              }
+
+              override fun onUnbind(intent: Intent?): Boolean {
+                  instance = null
+                  return super.onUnbind(intent)
+              }
+
+              override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+
+              override fun onInterrupt() {}
+
+              fun scheduleTap() {
+                  handler.removeCallbacksAndMessages(null)
+                  attempt(0)
+              }
+
+              private fun attempt(n: Int) {
+                  val delay = if (n == 0) 2000L else 700L
+                  handler.postDelayed({
+                      val pkg = rootInActiveWindow?.packageName?.toString()
+                      if (pkg == DEFYX) {
+                          tapCenter()
+                      } else if (n < 6) {
+                          attempt(n + 1)
+                      }
+                  }, delay)
+              }
+
+              private fun tapCenter() {
+                  val dm = resources.displayMetrics
+                  val path = Path().apply {
+                      moveTo(dm.widthPixels * TAP_X, dm.heightPixels * TAP_Y)
+                  }
+                  val gesture = GestureDescription.Builder()
+                      .addStroke(GestureDescription.StrokeDescription(path, 0, 60))
+                      .build()
+                  dispatchGesture(gesture, null, null)
+              }
+          }
+          EOF_9
+          mkdir -p app/src/main/kotlin/com/example/defyxtile
+          cat > app/src/main/kotlin/com/example/defyxtile/DefyxTileService.kt <<'EOF_10'
+          package com.example.defyxtile
+
+          import android.app.PendingIntent
+          import android.content.Intent
+          import android.os.Build
+          import android.provider.Settings
+          import android.service.quicksettings.Tile
+          import android.service.quicksettings.TileService
+
+          class DefyxTileService : TileService() {
+
+              override fun onStartListening() {
+                  qsTile?.apply {
+                      state = Tile.STATE_INACTIVE
+                      label = "Defyx"
+                      updateTile()
+                  }
+              }
+
+              override fun onClick() {
+                  val service = TapService.instance
+                  if (service == null) {
+                      open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                      return
+                  }
+                  val launch = packageManager.getLaunchIntentForPackage(TapService.DEFYX) ?: return
+                  service.scheduleTap()
+                  open(launch)
+              }
+
+              @Suppress("DEPRECATION")
+              private fun open(intent: Intent) {
+                  intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                  if (Build.VERSION.SDK_INT >= 34) {
+                      val pi = PendingIntent.getActivity(
+                          this, 0, intent,
+                          PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                      )
+                      startActivityAndCollapse(pi)
+                  } else {
+                      startActivityAndCollapse(intent)
+                  }
+              }
+          }
+          EOF_10
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build debug APK
+        working-directory: tile
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: defyx-tile-apk
+          path: tile/app/build/outputs/apk/debug/app-debug.apk
